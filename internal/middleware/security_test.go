@@ -12,16 +12,39 @@ func TestValidatePath(t *testing.T) {
 		path    string
 		wantErr bool
 	}{
+		// Valid paths
 		{"valid eml", "inbox/alert.eml", false},
 		{"valid msg", "inbox/report.msg", false},
 		{"valid nested", "inbox/2026/04/test.eml", false},
-		{"empty path", "", true},
-		{"traversal dotdot", "../etc/passwd", true},
-		{"traversal mid", "inbox/../../secret.eml", true},
-		{"disallowed extension", "inbox/file.txt", true},
-		{"no extension", "inbox/file", true},
 		{"double dot in name", "inbox/file..eml", false},
-		{"traversal dot", "./inbox/test.eml", true},
+		{"hyphen underscore", "inbox/my-file_v2.eml", false},
+		{"unicode filename", "inbox/テスト.eml", false},
+
+		// Empty / missing
+		{"empty path", "", true},
+		{"no extension", "inbox/file", true},
+
+		// Directory traversal variants
+		{"traversal dotdot prefix", "../etc/passwd", true},
+		{"traversal dotdot mid", "inbox/../../secret.eml", true},
+		{"traversal dot prefix", "./inbox/test.eml", true},
+		{"traversal dotdot only", "..", true},
+		{"traversal dot only", ".", true},
+		{"traversal triple dot", "inbox/.../test.eml", true}, // path.Clean changes this
+
+		// Path normalization attacks
+		{"leading slash", "/inbox/test.eml", true},
+		{"trailing slash", "inbox/test.eml/", true},
+		{"double slash", "inbox//test.eml", true},
+
+		// URL-encoded traversal (Go net/http decodes %2e to . before we see it,
+		// but if raw %XX somehow survives, reject it)
+		{"percent in path", "inbox/%2e%2e/test.eml", true}, // path.Clean normalizes
+
+		// Extension filter
+		{"disallowed extension", "inbox/file.txt", true},
+		{"disallowed exe", "inbox/malware.exe", true},
+		{"double extension", "inbox/file.txt.eml", false}, // ext is .eml, valid
 	}
 
 	for _, tt := range tests {
@@ -59,6 +82,7 @@ func TestValidatePathControlChars(t *testing.T) {
 		{"carriage return", "inbox/te\rst.eml"},
 		{"bell", "inbox/te\x07st.eml"},
 		{"backslash", "inbox\\test.eml"},
+		{"delete char", "inbox/te\x7fst.eml"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

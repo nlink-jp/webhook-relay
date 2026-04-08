@@ -68,10 +68,23 @@ func ValidatePath(allowedExtensions []string) func(objectPath string) error {
 			return &pathError{"empty path"}
 		}
 
+		// Reject absolute paths (leading slash).
+		// GCS object names must be relative to the bucket root.
+		if objectPath[0] == '/' {
+			return &pathError{"absolute path not allowed"}
+		}
+
 		// Reject null bytes — prevents null byte injection where downstream
 		// systems (C libraries, OS APIs) truncate at \x00.
 		if strings.ContainsRune(objectPath, '\x00') {
 			return &pathError{"null byte in path"}
+		}
+
+		// Reject percent-encoded sequences — Go's net/http decodes %XX in
+		// r.URL.Path, so any remaining % indicates double-encoding or
+		// literal percent which could bypass traversal checks in downstream systems.
+		if strings.ContainsRune(objectPath, '%') {
+			return &pathError{"percent-encoding not allowed in path"}
 		}
 
 		// Reject ASCII control characters (0x00-0x1F, 0x7F) and backslash.
@@ -101,10 +114,12 @@ func ValidatePath(allowedExtensions []string) func(objectPath string) error {
 			return &pathError{"path contains disallowed components"}
 		}
 
-		// Explicit traversal check on each segment
+		// Explicit check on each segment: reject any segment that starts with dot.
+		// This blocks ".", "..", "...", ".hidden", etc.
+		// Legitimate email filenames should never start with a dot.
 		for _, segment := range strings.Split(objectPath, "/") {
-			if segment == ".." || segment == "." {
-				return &pathError{"path traversal not allowed"}
+			if len(segment) > 0 && segment[0] == '.' {
+				return &pathError{"path segment starting with dot not allowed"}
 			}
 		}
 
