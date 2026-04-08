@@ -75,15 +75,19 @@ func TestIngestSuccess(t *testing.T) {
 
 	var resp map[string]string
 	json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["path"] != "inbox/test.eml" {
-		t.Errorf("path = %q, want inbox/test.eml", resp["path"])
+	// Path should contain the original filename with timestamp+random prefix
+	if !strings.Contains(resp["path"], "test.eml") {
+		t.Errorf("path %q should contain 'test.eml'", resp["path"])
+	}
+	if !strings.HasPrefix(resp["path"], "inbox/") {
+		t.Errorf("path %q should start with 'inbox/'", resp["path"])
 	}
 
 	if len(mock.writes) != 1 {
 		t.Fatalf("expected 1 write, got %d", len(mock.writes))
 	}
-	if mock.writes[0].Path != "inbox/test.eml" {
-		t.Errorf("write path = %q", mock.writes[0].Path)
+	if !strings.Contains(mock.writes[0].Path, "test.eml") {
+		t.Errorf("write path %q should contain 'test.eml'", mock.writes[0].Path)
 	}
 }
 
@@ -144,5 +148,42 @@ func TestIngestDisallowedExtension(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("got %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestUniqueObjectPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"with dir", "inbox/alert.eml"},
+		{"nested dir", "inbox/2026/04/report.msg"},
+		{"no dir", "alert.eml"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p1 := uniqueObjectPath(tt.input)
+			p2 := uniqueObjectPath(tt.input)
+
+			// Must be different (random component)
+			if p1 == p2 {
+				t.Errorf("two calls returned same path: %q", p1)
+			}
+
+			// Must end with original filename
+			base := tt.input[strings.LastIndex(tt.input, "/")+1:]
+			if !strings.HasSuffix(p1, "_"+base) {
+				t.Errorf("path %q should end with _%s", p1, base)
+			}
+
+			// Must preserve directory
+			if strings.Contains(tt.input, "/") {
+				dir := tt.input[:strings.LastIndex(tt.input, "/")]
+				if !strings.HasPrefix(p1, dir+"/") {
+					t.Errorf("path %q should start with %s/", p1, dir)
+				}
+			}
+		})
 	}
 }

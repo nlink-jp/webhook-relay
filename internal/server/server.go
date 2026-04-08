@@ -2,12 +2,16 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"path"
 	"strings"
+	"time"
 
 	"github.com/nlink-jp/webhook-relay/internal/auth"
 	"github.com/nlink-jp/webhook-relay/internal/backend"
@@ -101,9 +105,14 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Generate unique object path to prevent collisions.
+	// Format: {dir}/{timestamp}_{random}_{original_filename}
+	// Example: inbox/20260409T102300Z_a1b2c3d4_alert.eml
+	uniquePath := uniqueObjectPath(objectPath)
+
 	// Read body and write to backend
 	defer r.Body.Close()
-	if err := b.Write(r.Context(), objectPath, r.Body, r.ContentLength); err != nil {
+	if err := b.Write(r.Context(), uniquePath, r.Body, r.ContentLength); err != nil {
 		log.Printf("ERROR: backend write failed: %v", err)
 		http.Error(w, `{"error":"backend write failed"}`, http.StatusInternalServerError)
 		return
@@ -112,7 +121,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]string{
 		"status":  "ok",
 		"backend": backendName,
-		"path":    objectPath,
+		"path":    uniquePath,
 	}
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(resp)
@@ -140,6 +149,29 @@ func parseExtensions(s string) []string {
 		}
 	}
 	return result
+}
+
+// uniqueObjectPath generates a unique object path by prepending a timestamp
+// and random suffix to the filename. This prevents collisions when multiple
+// emails arrive with the same name (e.g., from Power Automate).
+//
+// Input:  "inbox/alert.eml"
+// Output: "inbox/20260409T102300Z_a1b2c3d4_alert.eml"
+func uniqueObjectPath(objectPath string) string {
+	dir := path.Dir(objectPath)
+	base := path.Base(objectPath)
+
+	ts := time.Now().UTC().Format("20060102T150405Z")
+
+	var buf [4]byte
+	rand.Read(buf[:])
+	rnd := hex.EncodeToString(buf[:])
+
+	unique := fmt.Sprintf("%s_%s_%s", ts, rnd, base)
+	if dir == "." {
+		return unique
+	}
+	return dir + "/" + unique
 }
 
 // ReadBody reads the request body with a size limit.
