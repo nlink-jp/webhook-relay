@@ -40,3 +40,31 @@ func TestValidatePathNoExtensionFilter(t *testing.T) {
 		t.Errorf("expected no error with nil extensions, got: %v", err)
 	}
 }
+
+func TestValidatePathNullByte(t *testing.T) {
+	validate := ValidatePath([]string{".eml"})
+	if err := validate("inbox/test.eml\x00.txt"); err == nil {
+		t.Error("expected error for null byte in path")
+	}
+}
+
+func TestValidatePathControlChars(t *testing.T) {
+	validate := ValidatePath([]string{".eml"})
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"tab", "inbox/te\tst.eml"},
+		{"newline", "inbox/te\nst.eml"},
+		{"carriage return", "inbox/te\rst.eml"},
+		{"bell", "inbox/te\x07st.eml"},
+		{"backslash", "inbox\\test.eml"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validate(tt.path); err == nil {
+				t.Errorf("expected error for control char in path %q", tt.path)
+			}
+		})
+	}
+}

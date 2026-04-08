@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"unicode"
 )
 
 // SecurityHeaders adds security response headers to every response.
@@ -15,6 +16,12 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
+		// Prevent MIME sniffing and embedding
+		w.Header().Set("X-XSS-Protection", "0")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		// CSRF defense: this is an API-only service with API key auth.
+		// No cookies, no sessions, no browser-based authentication.
+		// CORS is intentionally not set (defaults to same-origin only).
 		next.ServeHTTP(w, r)
 	})
 }
@@ -47,6 +54,8 @@ func MethodOnly(method string) func(http.Handler) http.Handler {
 // - No directory traversal (.. components)
 // - No empty path
 // - No absolute paths or double slashes
+// - No null bytes or control characters
+// - No backslash (Windows path separator)
 // - Must have an allowed file extension
 func ValidatePath(allowedExtensions []string) func(objectPath string) error {
 	extSet := make(map[string]bool, len(allowedExtensions))
@@ -59,14 +68,40 @@ func ValidatePath(allowedExtensions []string) func(objectPath string) error {
 			return &pathError{"empty path"}
 		}
 
-		// Clean the path and check for traversal
+		// Reject null bytes — prevents null byte injection where downstream
+		// systems (C libraries, OS APIs) truncate at \x00.
+		if strings.ContainsRune(objectPath, '\x00') {
+			return &pathError{"null byte in path"}
+		}
+
+		// Reject ASCII control characters (0x00-0x1F, 0x7F) and backslash.
+		// Control characters can cause log injection, terminal escape attacks,
+		// and inconsistent behavior across systems.
+		for _, r := range objectPath {
+			if r < 0x20 || r == 0x7F {
+				return &pathError{"control character in path"}
+			}
+			if r == '\\' {
+				return &pathError{"backslash not allowed in path"}
+			}
+		}
+
+		// Reject non-printable Unicode (categories Cc, Co, Cs, Cf except common ones)
+		for _, r := range objectPath {
+			if !unicode.IsPrint(r) && r != ' ' {
+				return &pathError{"non-printable character in path"}
+			}
+		}
+
+		// Clean the path and check for traversal.
+		// path.Clean normalizes //, /./, /../ etc.
+		// If cleaned != original, the path contained traversal or redundant separators.
 		cleaned := path.Clean(objectPath)
 		if cleaned != objectPath {
-			// path.Clean changed the path — likely had .., //, or trailing /
 			return &pathError{"path contains disallowed components"}
 		}
 
-		// Explicit traversal check
+		// Explicit traversal check on each segment
 		for _, segment := range strings.Split(objectPath, "/") {
 			if segment == ".." || segment == "." {
 				return &pathError{"path traversal not allowed"}

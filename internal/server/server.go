@@ -85,23 +85,30 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(trimmed, "/", 2)
 
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-		http.Error(w, `{"error":"invalid path: expected /ingest/{backend}/{path...}"}`, http.StatusBadRequest)
+		jsonError(w, "invalid path: expected /ingest/{backend}/{path...}", http.StatusBadRequest)
 		return
 	}
 
 	backendName := parts[0]
 	objectPath := parts[1]
 
-	// Look up backend
-	b, ok := s.backends[backendName]
-	if !ok {
-		http.Error(w, `{"error":"unknown backend: `+backendName+`"}`, http.StatusBadRequest)
+	// Validate backend name — only alphanumeric and hyphens.
+	// Prevents injection via crafted backend names in error responses.
+	if !isValidIdentifier(backendName) {
+		jsonError(w, "invalid backend name", http.StatusBadRequest)
 		return
 	}
 
-	// Validate object path (traversal, extension)
+	// Look up backend
+	b, ok := s.backends[backendName]
+	if !ok {
+		jsonError(w, "unknown backend", http.StatusBadRequest)
+		return
+	}
+
+	// Validate object path (traversal, null bytes, control chars, extension)
 	if err := s.validate(objectPath); err != nil {
-		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+		jsonError(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 
@@ -114,17 +121,37 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	if err := b.Write(r.Context(), uniquePath, r.Body, r.ContentLength); err != nil {
 		log.Printf("ERROR: backend write failed: %v", err)
-		http.Error(w, `{"error":"backend write failed"}`, http.StatusInternalServerError)
+		jsonError(w, "backend write failed", http.StatusInternalServerError)
 		return
 	}
 
-	resp := map[string]string{
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
 		"backend": backendName,
 		"path":    uniquePath,
+	})
+}
+
+// jsonError writes a JSON error response using json.Marshal to prevent
+// injection via user-controlled input in error messages.
+func jsonError(w http.ResponseWriter, msg string, code int) {
+	resp, _ := json.Marshal(map[string]string{"error": msg})
+	http.Error(w, string(resp), code)
+}
+
+// isValidIdentifier checks that a string contains only safe characters
+// for use in backend names (alphanumeric, hyphens, underscores).
+func isValidIdentifier(s string) bool {
+	if s == "" {
+		return false
 	}
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(resp)
+	for _, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // chain applies middleware in reverse order so the first middleware

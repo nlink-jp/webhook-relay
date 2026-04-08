@@ -151,6 +151,36 @@ func TestIngestDisallowedExtension(t *testing.T) {
 	}
 }
 
+func TestIngestJsonInjectionInBackendName(t *testing.T) {
+	srv, _ := newTestServer("test-key")
+	// Attempt to inject JSON via backend name
+	req := httptest.NewRequest(http.MethodPost, `/ingest/evil","hacked":"true/inbox/test.eml`, strings.NewReader("data"))
+	req.Header.Set("X-API-Key", "test-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code == http.StatusCreated {
+		t.Error("JSON injection in backend name should be rejected")
+	}
+	// Response must be valid JSON
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Errorf("response is not valid JSON: %s", w.Body.String())
+	}
+}
+
+func TestIngestNullByteInPath(t *testing.T) {
+	srv, _ := newTestServer("test-key")
+	req := httptest.NewRequest(http.MethodPost, "/ingest/mock/inbox/test.eml%00.txt", strings.NewReader("data"))
+	req.Header.Set("X-API-Key", "test-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code == http.StatusCreated {
+		t.Error("null byte in path should be rejected")
+	}
+}
+
 func TestUniqueObjectPath(t *testing.T) {
 	tests := []struct {
 		name  string

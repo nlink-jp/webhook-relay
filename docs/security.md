@@ -124,10 +124,17 @@ External Source (Power Automate)
 | Category | Control | Implementation |
 |----------|---------|----------------|
 | Authentication | API key (X-API-Key header) | `internal/auth/apikey.go` |
-| Authorization | Backend + path validation | `internal/server/server.go` |
+| Authorization | Backend name validation (alphanumeric only) | `internal/server/server.go` |
 | Input validation | Path traversal guard | `internal/middleware/security.go` |
+| Input validation | Null byte rejection | `internal/middleware/security.go` |
+| Input validation | Control character / backslash rejection | `internal/middleware/security.go` |
 | Input validation | File extension whitelist | `internal/middleware/security.go` |
 | Input validation | Request size limit | `internal/middleware/security.go` |
+| Injection defense | JSON response via `json.Marshal` (no string concat) | `internal/server/server.go` |
+| Injection defense | Error messages are static (no user input echoed) | `internal/server/server.go` |
+| CSRF defense | No cookies/sessions, API key auth only | By design |
+| SSRF defense | No user-controlled outbound URLs, VPC egress restricted | By design + `deploy/deploy.sh` |
+| Header injection | Go `net/http` strips CR/LF in headers; control chars rejected in input | Runtime + `internal/middleware/security.go` |
 | Rate limiting | Per-IP token bucket | `internal/middleware/ratelimit.go` |
 | Audit | Structured JSON request log | `internal/middleware/logging.go` |
 | Network | VPC isolation + Private Google Access | `deploy/deploy.sh` |
