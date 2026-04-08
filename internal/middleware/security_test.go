@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,15 @@ func TestValidatePathNullByte(t *testing.T) {
 	validate := ValidatePath([]string{".eml"})
 	if err := validate("inbox/test.eml\x00.txt"); err == nil {
 		t.Error("expected error for null byte in path")
+	}
+}
+
+func TestValidatePathTooLong(t *testing.T) {
+	validate := ValidatePath([]string{".eml"})
+	longDir := strings.Repeat("a", 895)
+	longPath := longDir + "/test.eml"
+	if err := validate(longPath); err == nil {
+		t.Error("expected error for path exceeding 900 bytes")
 	}
 }
 

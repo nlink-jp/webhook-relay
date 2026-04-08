@@ -169,6 +169,19 @@ func TestIngestJsonInjectionInBackendName(t *testing.T) {
 	}
 }
 
+func TestIngestEmptyBody(t *testing.T) {
+	srv, _ := newTestServer("test-key")
+	req := httptest.NewRequest(http.MethodPost, "/ingest/mock/inbox/test.eml", nil)
+	req.Header.Set("X-API-Key", "test-key")
+	req.ContentLength = 0
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("got %d, want %d for empty body", w.Code, http.StatusBadRequest)
+	}
+}
+
 func TestIngestNullByteInPath(t *testing.T) {
 	srv, _ := newTestServer("test-key")
 	req := httptest.NewRequest(http.MethodPost, "/ingest/mock/inbox/test.eml%00.txt", strings.NewReader("data"))

@@ -31,9 +31,13 @@ func New(ctx context.Context, project, bucket string) (*Backend, error) {
 }
 
 // Write stores data at the given object path in the GCS bucket.
+// Content-Type is forced to application/octet-stream to prevent GCS from
+// inferring a type (e.g. text/html) that could be dangerous if the bucket
+// is ever accidentally made public.
 func (b *Backend) Write(ctx context.Context, path string, data io.Reader, contentLength int64) error {
 	obj := b.client.Bucket(b.bucket).Object(path)
 	w := obj.NewWriter(ctx)
+	w.ContentType = "application/octet-stream"
 
 	if _, err := io.Copy(w, data); err != nil {
 		w.Close()

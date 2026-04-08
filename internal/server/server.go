@@ -112,6 +112,13 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject empty bodies — a 0-byte file is never valid input and would
+	// cause downstream parsing failures.
+	if r.ContentLength == 0 {
+		jsonError(w, "empty request body", http.StatusBadRequest)
+		return
+	}
+
 	// Generate unique object path to prevent collisions.
 	// Format: {dir}/{timestamp}_{random}_{original_filename}
 	// Example: inbox/20260409T102300Z_a1b2c3d4_alert.eml

@@ -68,6 +68,14 @@ func ValidatePath(allowedExtensions []string) func(objectPath string) error {
 			return &pathError{"empty path"}
 		}
 
+		// GCS object name limit is 1024 bytes.
+		// Enforce here to avoid cryptic GCS errors downstream.
+		if len(objectPath) > 900 {
+			// Use 900, not 1024, to leave room for the timestamp+random prefix
+			// added by uniqueObjectPath (about 30 chars).
+			return &pathError{"path too long"}
+		}
+
 		// Reject absolute paths (leading slash).
 		// GCS object names must be relative to the bucket root.
 		if objectPath[0] == '/' {
