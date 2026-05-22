@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-05-23
+
+### Added
+
+- **`package` Makefile target.** Builds all 5 platforms, signs darwin
+  binaries with Developer ID, zips each with LICENSE + README.md
+  using versioned naming
+  (`webhook-relay-vX.Y.Z-<os>-<arch>.zip`), and notarizes the
+  darwin zips. Replaces the manual zip step that produced the
+  v0.1.0 release.
+
+### Changed
+
+- **Darwin releases are now Developer ID signed and Apple-notarized.**
+  `webhook-relay-v0.1.1-darwin-{amd64,arm64}.zip` carry full Apple
+  Developer ID Application signatures and notarization tickets
+  from Apple. Darwin binaries are local-development targets (the
+  primary deployment is Cloud Run linux/amd64); the signing fix
+  matters mainly for developers running `webhook-relay` locally
+  under Dropbox-synced (FileProvider-managed) paths, where macOS
+  was killing ad-hoc-signed binaries with `com.apple.provenance`
+  set. Pipeline: `scripts/codesign-darwin.sh` +
+  `scripts/notarize-darwin.sh`, driven by `make package`. Adopts
+  the org-wide convention in `nlink-jp/.github` CONVENTIONS.md
+  §Code Signing.
+
+No behaviour change to the binary itself — feature-wise this is
+identical to v0.1.0.
+
 ## [0.1.0] - 2026-04-09
 
 ### Added
