@@ -13,6 +13,7 @@ make build       # Build → dist/webhook-relay
 make build-all   # Cross-compile all platforms
 make test        # Run tests
 make clean       # Remove dist/
+make verify-release  # gate: .notarized marker + freshness (run before upload)
 ```
 
 ## Key directory structure
