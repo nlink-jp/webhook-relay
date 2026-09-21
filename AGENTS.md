@@ -39,7 +39,7 @@ webhook-relay/
 │   ├── deploy.sh              # VPC + Cloud Run setup
 │   └── deploy.env.template
 ├── docs/
-│   └── security.md            # Threat model, controls
+│   └── en/security.md         # Threat model, controls
 └── Makefile
 ```
 

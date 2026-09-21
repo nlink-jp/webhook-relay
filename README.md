@@ -94,6 +94,6 @@ make clean      # Remove dist/
 
 ## Documentation
 
-- [Security Design](docs/security.md) — Threat model, controls, network architecture
+- [Security Design](docs/en/security.md) — Threat model, controls, network architecture
 - [README.ja.md](README.ja.md) (Japanese)
 - [CHANGELOG.md](CHANGELOG.md)

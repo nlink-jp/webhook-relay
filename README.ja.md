@@ -94,6 +94,6 @@ make clean      # dist/ 削除
 
 ## ドキュメント
 
-- [Security Design](docs/security.md) — 脅威モデル、セキュリティ統制、ネットワーク構成
+- [Security Design](docs/en/security.md) — 脅威モデル、セキュリティ統制、ネットワーク構成
 - [README.md](README.md)（English）
 - [CHANGELOG.md](CHANGELOG.md)
