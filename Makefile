@@ -40,7 +40,9 @@ build-all:
 ## darwin/windows, tar.gz for linux), bundle the canonical binary +
 ## README.md + LICENSE, and notarize the darwin build → dist/. Asset
 ## naming follows the org Release Archive Standard
-## (webhook-relay-vX.Y.Z-<os>-<arch>.<ext>).
+## (webhook-relay-vX.Y.Z-<os>-<arch>.<ext>). Archive members record no
+## builder identity: tar writes uid/gid 0 and root/root, zip -X drops the
+## Unix extra field that holds uid/gid.
 package: build-all
 	@cd $(DIST_DIR) && for p in $(PLATFORMS); do os=$${p%/*}; arch=$${p#*/}; \
 		ext=""; [ "$$os" = windows ] && ext=".exe"; \
@@ -48,8 +50,8 @@ package: build-all
 		cp "$(BINARY)-$$os-$$arch$$ext" "$$stage/$(BINARY)$$ext"; \
 		cp ../README.md ../LICENSE $$stage/; \
 		base="$(BINARY)-$(VERSION)-$$os-$$arch"; \
-		if [ "$$os" = linux ]; then ( cd $$stage && COPYFILE_DISABLE=1 tar --no-xattrs -czf "../$$base.tar.gz" * ); \
-		else ( cd $$stage && zip -q "../$$base.zip" * ); fi; \
+		if [ "$$os" = linux ]; then ( cd $$stage && COPYFILE_DISABLE=1 tar --no-xattrs --uid 0 --gid 0 --uname root --gname root -czf "../$$base.tar.gz" * ); \
+		else ( cd $$stage && zip -q -X "../$$base.zip" * ); fi; \
 		rm -rf $$stage; \
 	done
 	@scripts/notarize-darwin.sh $(DIST_DIR)/$(BINARY)-$(VERSION)-darwin-arm64.zip "$(NOTARY_PROFILE)"
@@ -95,6 +97,12 @@ verify-release:
 		if [ -n "$$xh" ]; then \
 			echo "verify-release: FAIL — $$f carries extended attributes as pax headers ($$xh)."; \
 			echo "  macOS tar writes them unless called with --no-xattrs; COPYFILE_DISABLE alone does not."; \
+			exit 1; fi; \
+		own=$$(python3 -c 'import sys, tarfile; print(" ".join("%s(%d:%d %s:%s)" % (m.name, m.uid, m.gid, m.uname, m.gname) for m in tarfile.open(sys.argv[1]) if (m.uid, m.gid, m.uname, m.gname) != (0, 0, "root", "root")))' "$$f") || { \
+			echo "verify-release: FAIL — $$f cannot be read for its owner fields (python3 tarfile)."; exit 1; }; \
+		if [ -n "$$own" ]; then \
+			echo "verify-release: FAIL — $$f records a builder identity in member owner fields: $$own"; \
+			echo "  tar must be called with --uid 0 --gid 0 --uname root --gname root."; \
 			exit 1; fi; \
 		got=$$(printf '%s\n' "$$names" | LC_ALL=C sort | tr '\n' ' '); \
 		want=$$(printf '%s\n' "$(BINARY)" README.md LICENSE | LC_ALL=C sort | tr '\n' ' '); \

@@ -46,6 +46,16 @@ Findings from the organisation's code-audit run against this repository
   `/home/`, so a `GOFLAGS` override or a hand-run build cannot bring the
   paths back. Assets already published keep them.
   `Makefile:build-all:release-binaries-built-without-trimpath`
+- **Linux release archives no longer record the builder's login and group
+  names.** `make package` called `tar` with no ownership override, so each
+  member header of the published `.tar.gz` carried the maintainer's macOS
+  account (`uname`/`gname`) and uid/gid, visible in any `tar -tv` listing.
+  The archives are now written with `--uid 0 --gid 0 --uname root --gname
+  root`, and the darwin/windows zips with `zip -X`, which drops the Unix
+  extra field holding uid/gid. `make verify-release` reads every Linux
+  member's owner fields with Python's `tarfile` and fails unless all are
+  `0:0 root:root`. Archives already published keep the names.
+  `Makefile:package:linux-tarball-records-builder-owner-names`
 - **Unparseable or unusable configuration values no longer fall back to
   defaults.** `intEnv` and `floatEnv` dropped the `strconv` error, so a typo
   in `WEBHOOK_RELAY_MAX_REQUEST_BYTES`, `WEBHOOK_RELAY_RATE_LIMIT_RPS` or
@@ -84,8 +94,8 @@ Findings from the organisation's code-audit run against this repository
 - `make verify-release` also judges each Linux archive: no AppleDouble or other
   macOS metadata members — listed with `--options 'tar:!mac-ext'`, because a
   plain macOS listing folds `._` members away — no extended attributes as pax
-  headers, and exactly the canonical binary, `README.md` and `LICENSE`, compared
-  in the C locale.
+  headers, owner fields all `0:0 root:root`, and exactly the canonical binary,
+  `README.md` and `LICENSE`, compared in the C locale.
 - The Linux-archive check in `make verify-release` reads each archive's pax
   headers with Python's `tarfile` instead of grepping the decompressed stream,
   which also matched file text that names the keywords (a bundled CHANGELOG,
