@@ -31,6 +31,9 @@ curl -X POST "https://SERVICE_URL/ingest/gcs/inbox/alert.eml" \
 curl "https://SERVICE_URL/healthz"
 ```
 
+`webhook-relay --version`（または `webhook-relay version`）は版数を印字して終了します。
+設定を読まないので、API キーの無い機械でも動きます。
+
 ### API
 
 ```

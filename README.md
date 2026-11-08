@@ -31,6 +31,9 @@ curl -X POST "https://SERVICE_URL/ingest/gcs/inbox/alert.eml" \
 curl "https://SERVICE_URL/healthz"
 ```
 
+`webhook-relay --version` (or `webhook-relay version`) prints the version and
+exits; it reads no configuration, so it works on a machine without an API key.
+
 ### API
 
 ```

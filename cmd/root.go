@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,22 @@ import (
 
 // Run is the main entry point for the webhook-relay server.
 func Run(version string) error {
+	return run(version, os.Args[1:], os.Stdout)
+}
+
+// versionRequested reports whether the arguments ask for the version: the
+// `--version` flag (what Homebrew's `brew test` runs) or the `version`
+// subcommand. Both print the same line and exit before the configuration is
+// read, so the question needs no API key.
+func versionRequested(args []string) bool {
+	return len(args) == 1 && (args[0] == "--version" || args[0] == "-version" || args[0] == "version")
+}
+
+func run(version string, args []string, stdout io.Writer) error {
+	if versionRequested(args) {
+		_, err := fmt.Fprintf(stdout, "webhook-relay %s\n", version)
+		return err
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)

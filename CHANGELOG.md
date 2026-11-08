@@ -105,6 +105,14 @@ Findings from the organisation's code-audit run against this repository
 
 ### Fixed
 
+- **`webhook-relay --version` (and `version`) answer before the configuration
+  is read.** The binary had no version flag at all: any invocation loaded the
+  configuration first and stopped with `WEBHOOK_RELAY_API_KEY is required`, so
+  the Homebrew formula's `brew test` — which runs `--version` — had failed
+  since the tap entry existed, and the fail-closed `make verify-release` of
+  this release caught it before upload. Both spellings print
+  `webhook-relay <version>` and exit 0.
+
 - **`deploy/deploy.env` is gitignored, as the template and README already
   claimed.** `.gitignore` matched only the exact name `.env`, so the file
   operators are told to create (project ID, region, bucket name) was one
