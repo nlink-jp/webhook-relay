@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -61,7 +62,7 @@ func TestLoadOverrides(t *testing.T) {
 	os.Setenv("PORT", "9090")
 	os.Setenv("WEBHOOK_RELAY_GCS_BUCKET", "my-bucket")
 	os.Setenv("WEBHOOK_RELAY_GCS_PROJECT", "my-project")
-	os.Setenv("WEBHOOK_RELAY_RATE_LIMIT_RPS", "5")
+	os.Setenv("WEBHOOK_RELAY_RATE_LIMIT_RPS", "0.5")
 	os.Setenv("WEBHOOK_RELAY_RATE_LIMIT_BURST", "10")
 	os.Setenv("WEBHOOK_RELAY_MAX_REQUEST_BYTES", "1048576")
 	os.Setenv("WEBHOOK_RELAY_ALLOWED_EXTENSIONS", ".eml")
@@ -81,8 +82,8 @@ func TestLoadOverrides(t *testing.T) {
 	if cfg.GCSProject != "my-project" {
 		t.Errorf("GCSProject = %q, want 'my-project'", cfg.GCSProject)
 	}
-	if cfg.RateLimitRPS != 5 {
-		t.Errorf("RateLimitRPS = %f, want 5", cfg.RateLimitRPS)
+	if cfg.RateLimitRPS != 0.5 {
+		t.Errorf("RateLimitRPS = %f, want 0.5", cfg.RateLimitRPS)
 	}
 	if cfg.RateLimitBurst != 10 {
 		t.Errorf("RateLimitBurst = %d, want 10", cfg.RateLimitBurst)
@@ -95,18 +96,81 @@ func TestLoadOverrides(t *testing.T) {
 	}
 }
 
-func TestLoadInvalidIntFallsBackToDefault(t *testing.T) {
-	clearEnv()
-	os.Setenv("WEBHOOK_RELAY_API_KEY", "test-key")
-	os.Setenv("PORT", "not-a-number")
-	defer clearEnv()
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// A present value that cannot be used stops startup and the error names the
+// key. Before this, an operator's typo silently ran the service on defaults
+// looser than the ones they chose.
+func TestLoadRejectsUnusableValues(t *testing.T) {
+	tests := []struct {
+		key   string
+		value string
+	}{
+		// Unparseable
+		{"PORT", "not-a-number"},
+		{"PORT", "8080.0"},
+		{"WEBHOOK_RELAY_MAX_REQUEST_BYTES", "10MB"},
+		{"WEBHOOK_RELAY_MAX_REQUEST_BYTES", ""},
+		{"WEBHOOK_RELAY_RATE_LIMIT_RPS", "1/s"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_RPS", ""},
+		{"WEBHOOK_RELAY_RATE_LIMIT_BURST", "5.0"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_BURST", " 20"},
+		// Out of range: non-positive
+		{"PORT", "0"},
+		{"PORT", "65536"},
+		{"WEBHOOK_RELAY_MAX_REQUEST_BYTES", "0"},
+		{"WEBHOOK_RELAY_MAX_REQUEST_BYTES", "-1"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_RPS", "0"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_RPS", "-10"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_BURST", "0"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_BURST", "-1"},
+		// Non-finite: ParseFloat accepts these, rate.Limit(+Inf) disables limiting
+		{"WEBHOOK_RELAY_RATE_LIMIT_RPS", "inf"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_RPS", "+Inf"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_RPS", "NaN"},
+		// Allow-list with no entries would turn the extension check off
+		{"WEBHOOK_RELAY_ALLOWED_EXTENSIONS", ""},
+		{"WEBHOOK_RELAY_ALLOWED_EXTENSIONS", ","},
+		{"WEBHOOK_RELAY_ALLOWED_EXTENSIONS", " , "},
 	}
 
-	if cfg.Port != 8080 {
-		t.Errorf("Port = %d, want 8080 (default on invalid input)", cfg.Port)
+	for _, tt := range tests {
+		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
+			clearEnv()
+			os.Setenv("WEBHOOK_RELAY_API_KEY", "test-key")
+			os.Setenv(tt.key, tt.value)
+			defer clearEnv()
+
+			cfg, err := Load()
+			if err == nil {
+				t.Fatalf("Load() accepted %s=%q, got %+v", tt.key, tt.value, cfg)
+			}
+			if !strings.Contains(err.Error(), tt.key) {
+				t.Errorf("error %q does not name the key %s", err, tt.key)
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsBoundaryValues(t *testing.T) {
+	tests := []struct {
+		key   string
+		value string
+	}{
+		{"PORT", "1"},
+		{"PORT", "65535"},
+		{"WEBHOOK_RELAY_MAX_REQUEST_BYTES", "1"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_RPS", "0.001"},
+		{"WEBHOOK_RELAY_RATE_LIMIT_BURST", "1"},
+		{"WEBHOOK_RELAY_ALLOWED_EXTENSIONS", ".eml, .msg,"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
+			clearEnv()
+			os.Setenv("WEBHOOK_RELAY_API_KEY", "test-key")
+			os.Setenv(tt.key, tt.value)
+			defer clearEnv()
+			if _, err := Load(); err != nil {
+				t.Fatalf("Load() rejected %s=%q: %v", tt.key, tt.value, err)
+			}
+		})
 	}
 }

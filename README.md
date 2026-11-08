@@ -69,6 +69,12 @@ In your Power Automate flow, add an **HTTP** action:
 | `WEBHOOK_RELAY_ALLOWED_EXTENSIONS` | `.eml,.msg` | Allowed file extensions |
 | `PORT` | `8080` | Server listen port |
 
+A variable that is set but cannot be used stops startup with an error naming
+the key: a number that does not parse (`10MB`, `1/s`), a non-positive or
+non-finite limit (`0`, `-1`, `inf`), or an extension list with no entries
+(`""`, `,`). Nothing falls back to a default silently; unset the variable to
+get the default.
+
 ## Deployment
 
 ```bash

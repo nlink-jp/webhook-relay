@@ -24,6 +24,20 @@ Findings from the organisation's code-audit run against this repository
   asserts the opposite.
   `internal/middleware/ratelimit.go:extractIP:client-controlled-leftmost-xff-rate-limit-key`
 
+- **Unparseable or unusable configuration values no longer fall back to
+  defaults.** `intEnv` and `floatEnv` dropped the `strconv` error, so a typo
+  in `WEBHOOK_RELAY_MAX_REQUEST_BYTES`, `WEBHOOK_RELAY_RATE_LIMIT_RPS` or
+  `WEBHOOK_RELAY_RATE_LIMIT_BURST` silently ran the service on the documented
+  defaults rather than the operator's tighter values. `Load` now returns an
+  error naming the key for a present value that does not parse, is
+  non-positive, or is not finite (`strconv.ParseFloat` accepts `inf`, and
+  `rate.Limit(+Inf)` would have switched the limiter off); `PORT` must be in
+  1–65535. A present `WEBHOOK_RELAY_ALLOWED_EXTENSIONS` with no entries
+  (`""`, `,`) is also an error, where before `,` turned the extension check
+  off without a word. The test asserting the fallback is replaced by one
+  asserting the error for every numeric key.
+  `internal/config/config.go:intEnv:parse-errors-silently-fall-back-to-default`
+
 ### Fixed
 
 - **`make verify-release` now fails closed.** Its last block chained unzip, the
