@@ -5,8 +5,10 @@ dist/
 *.test
 *.out
 
-# Credentials
+# Credentials and per-project deployment settings. deploy.env.template and
+# README.md call deploy/deploy.env gitignored; this line makes that true.
 .env
+deploy/deploy.env
 
 # Local deployment overrides
 deploy/*.local.*

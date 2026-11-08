@@ -106,6 +106,11 @@ Findings from the organisation's code-audit run against this repository
 
 ### Fixed
 
+- **`deploy/deploy.env` is gitignored, as the template and README already
+  claimed.** `.gitignore` matched only the exact name `.env`, so the file
+  operators are told to create (project ID, region, bucket name) was one
+  `git add -A` away from a public commit.
+  `repo:gitignore:deploy-env-not-ignored`
 - **`make verify-release` now fails closed.** Its last block chained unzip, the
   packaged binary's `--version` and `spctl` with `&&` and ended the whole chain
   in `|| true`, so a zip that did not unpack or a binary that did not run exited
