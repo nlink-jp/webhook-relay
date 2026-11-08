@@ -38,8 +38,12 @@ POST /ingest/{backend}/{path...}
   Headers:
     X-API-Key: <secret>         (必須)
     Content-Type: <any>         (パススルー)
-  Body: ファイルの生データ
+  Body: ファイルの生データ（空でないこと、WEBHOOK_RELAY_MAX_REQUEST_BYTES 以下）
   Response: 201 Created
+            400 空のボディまたは不正なパス
+            401 / 403 API キーが無い／違う
+            413 上限を超えるボディ（宣言値でもストリーム中でも）
+            429 レート制限（Retry-After: 1）
 
 GET /healthz
   Response: 200 {"status":"ok"}

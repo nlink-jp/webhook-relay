@@ -72,6 +72,16 @@ Findings from the organisation's code-audit run against this repository
   bucket. The write log records the bytes actually copied, not the declared
   `Content-Length`.
   `internal/backend/gcs/gcs.go:Backend.Write:close-commits-partial-object-on-read-error`
+- **Oversized and empty bodies are refused before the upload starts.** The
+  second open question from the audit is settled the same way: a request
+  with no `Content-Length` (chunked) and no body passed the
+  `ContentLength == 0` check and would have ended as a zero-length object
+  with a 201. The handler now reads the first byte before opening a backend
+  writer and answers 400 when there is none. A body declared larger than
+  `WEBHOOK_RELAY_MAX_REQUEST_BYTES` is answered 413 before the backend is
+  touched, and a chunked body that outgrows the limit while streaming is
+  also answered 413 (the `http.MaxBytesError` was mapped to 500 before).
+  `internal/server/server.go:handleIngest:empty-chunked-body-bypasses-contentlength-check`
 - **Unparseable or unusable configuration values no longer fall back to
   defaults.** `intEnv` and `floatEnv` dropped the `strconv` error, so a typo
   in `WEBHOOK_RELAY_MAX_REQUEST_BYTES`, `WEBHOOK_RELAY_RATE_LIMIT_RPS` or

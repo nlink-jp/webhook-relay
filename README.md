@@ -38,8 +38,12 @@ POST /ingest/{backend}/{path...}
   Headers:
     X-API-Key: <secret>         (required)
     Content-Type: <any>         (passthrough)
-  Body: raw file content
+  Body: raw file content (non-empty, at most WEBHOOK_RELAY_MAX_REQUEST_BYTES)
   Response: 201 Created
+            400 empty body or invalid path
+            401 / 403 missing or wrong API key
+            413 body larger than the limit (declared or streamed)
+            429 rate limited (Retry-After: 1)
 
 GET /healthz
   Response: 200 {"status":"ok"}

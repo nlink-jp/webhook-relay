@@ -236,7 +236,12 @@ All object paths are validated before reaching any backend:
 ### Request Size Limit
 
 - Default: 25 MB
-- Enforced via `http.MaxBytesReader` which returns 413 if exceeded
+- A body whose declared `Content-Length` exceeds the limit is answered 413
+  before any backend writer opens
+- A body of unknown length (chunked) is wrapped in `http.MaxBytesReader`;
+  outgrowing the limit while streaming aborts the upload and answers 413
+- An empty body is answered 400, whether declared (`Content-Length: 0`) or
+  discovered by reading the first byte of a chunked body
 - Prevents memory exhaustion and storage abuse
 
 ### Partial Uploads Are Not Committed

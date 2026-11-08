@@ -24,8 +24,13 @@ type mockWrite struct {
 	Data []byte
 }
 
+// Write reads the whole body, like the GCS backend, and reports its read
+// error instead of recording a partial write.
 func (m *mockBackend) Write(ctx context.Context, path string, data io.Reader, contentLength int64) error {
-	d, _ := io.ReadAll(data)
+	d, err := io.ReadAll(data)
+	if err != nil {
+		return err
+	}
 	m.writes = append(m.writes, mockWrite{Path: path, Data: d})
 	return nil
 }
@@ -179,6 +184,80 @@ func TestIngestEmptyBody(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("got %d, want %d for empty body", w.Code, http.StatusBadRequest)
+	}
+}
+
+// A chunked request (unknown Content-Length) with no body must be refused
+// like a declared-empty one, not written as a 0-byte object.
+func TestIngestEmptyChunkedBody(t *testing.T) {
+	srv, mock := newTestServer("test-key")
+	// io.MultiReader is not one of the body types httptest recognises, so
+	// ContentLength stays -1 as for a chunked upload.
+	req := httptest.NewRequest(http.MethodPost, "/ingest/mock/inbox/test.eml", io.MultiReader(strings.NewReader("")))
+	req.Header.Set("X-API-Key", "test-key")
+	if req.ContentLength != -1 {
+		t.Fatalf("test setup: ContentLength = %d, want -1", req.ContentLength)
+	}
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("got %d, want %d for empty chunked body", w.Code, http.StatusBadRequest)
+	}
+	if len(mock.writes) != 0 {
+		t.Errorf("empty body reached the backend: %d writes", len(mock.writes))
+	}
+}
+
+// A chunked body with content still gets through whole, first byte included.
+func TestIngestChunkedBody(t *testing.T) {
+	srv, mock := newTestServer("test-key")
+	req := httptest.NewRequest(http.MethodPost, "/ingest/mock/inbox/test.eml", io.MultiReader(strings.NewReader("hello")))
+	req.Header.Set("X-API-Key", "test-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("got %d, want %d. Body: %s", w.Code, http.StatusCreated, w.Body.String())
+	}
+	if len(mock.writes) != 1 || string(mock.writes[0].Data) != "hello" {
+		t.Errorf("writes = %+v, want one write of \"hello\"", mock.writes)
+	}
+}
+
+// A body declared larger than the limit is refused with 413 before the
+// backend is touched.
+func TestIngestDeclaredOversizedBody(t *testing.T) {
+	srv, mock := newTestServer("test-key")
+	req := httptest.NewRequest(http.MethodPost, "/ingest/mock/inbox/test.eml", strings.NewReader("x"))
+	req.Header.Set("X-API-Key", "test-key")
+	req.ContentLength = 1024*1024 + 1
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("got %d, want %d", w.Code, http.StatusRequestEntityTooLarge)
+	}
+	if len(mock.writes) != 0 {
+		t.Errorf("oversized body reached the backend: %d writes", len(mock.writes))
+	}
+}
+
+// A chunked body that outgrows the limit while streaming is the client's
+// fault: 413, not 500, and nothing is recorded as written.
+func TestIngestStreamedOversizedBody(t *testing.T) {
+	srv, mock := newTestServer("test-key")
+	big := bytes.Repeat([]byte("a"), 1024*1024+1)
+	req := httptest.NewRequest(http.MethodPost, "/ingest/mock/inbox/test.eml", io.MultiReader(bytes.NewReader(big)))
+	req.Header.Set("X-API-Key", "test-key")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("got %d, want %d. Body: %s", w.Code, http.StatusRequestEntityTooLarge, w.Body.String())
+	}
+	if len(mock.writes) != 0 {
+		t.Errorf("oversized body recorded as written: %d writes", len(mock.writes))
 	}
 }
 

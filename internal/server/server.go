@@ -2,9 +2,11 @@
 package server
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -24,6 +26,7 @@ type Server struct {
 	mux      *http.ServeMux
 	backends map[string]backend.Backend
 	validate func(string) error
+	maxBytes int64
 }
 
 // New creates a new Server with the given configuration and backends.
@@ -35,6 +38,7 @@ func New(cfg *config.Config, backends map[string]backend.Backend) *Server {
 		mux:      http.NewServeMux(),
 		backends: backends,
 		validate: middleware.ValidatePath(exts),
+		maxBytes: cfg.MaxRequestBytes,
 	}
 
 	// Rate limiter
@@ -112,9 +116,28 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A body declared larger than the limit is refused before any upload
+	// starts. MaxBodySize would stop it part-way, but by then a backend
+	// writer is open; this keeps the common oversized case out of that path.
+	if r.ContentLength > s.maxBytes {
+		jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
 	// Reject empty bodies — a 0-byte file is never valid input and would
-	// cause downstream parsing failures.
+	// cause downstream parsing failures. A chunked body has ContentLength
+	// -1, so the first byte is read to tell an empty one from a real one.
+	defer r.Body.Close()
 	if r.ContentLength == 0 {
+		jsonError(w, "empty request body", http.StatusBadRequest)
+		return
+	}
+	body, empty, err := peekNonEmpty(r.Body)
+	if err != nil {
+		writeBodyError(w, err)
+		return
+	}
+	if empty {
 		jsonError(w, "empty request body", http.StatusBadRequest)
 		return
 	}
@@ -124,11 +147,9 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 	// Example: inbox/20260409T102300Z_a1b2c3d4_alert.eml
 	uniquePath := uniqueObjectPath(objectPath)
 
-	// Read body and write to backend
-	defer r.Body.Close()
-	if err := b.Write(r.Context(), uniquePath, r.Body, r.ContentLength); err != nil {
-		log.Printf("ERROR: backend write failed: %v", err)
-		jsonError(w, "backend write failed", http.StatusInternalServerError)
+	// Stream body to backend
+	if err := b.Write(r.Context(), uniquePath, body, r.ContentLength); err != nil {
+		writeBodyError(w, err)
 		return
 	}
 
@@ -138,6 +159,35 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		"backend": backendName,
 		"path":    uniquePath,
 	})
+}
+
+// peekNonEmpty reads the first byte of body. It reports empty when the body
+// ends before any byte, and otherwise returns a reader that yields the whole
+// body, first byte included.
+func peekNonEmpty(body io.Reader) (io.Reader, bool, error) {
+	var first [1]byte
+	n, err := io.ReadFull(body, first[:])
+	switch {
+	case n == 1:
+		return io.MultiReader(bytes.NewReader(first[:1]), body), false, nil
+	case err == io.EOF || err == io.ErrUnexpectedEOF:
+		return nil, true, nil
+	default:
+		return nil, false, err
+	}
+}
+
+// writeBodyError answers a failed body read or backend write. A body that
+// outgrew MaxBodySize is the client's fault and gets 413; anything else is
+// an internal failure, reported without detail.
+func writeBodyError(w http.ResponseWriter, err error) {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	log.Printf("ERROR: backend write failed: %v", err)
+	jsonError(w, "backend write failed", http.StatusInternalServerError)
 }
 
 // jsonError writes a JSON error response using json.Marshal to prevent
