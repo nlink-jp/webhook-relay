@@ -56,6 +56,22 @@ Findings from the organisation's code-audit run against this repository
   member's owner fields with Python's `tarfile` and fails unless all are
   `0:0 root:root`. Archives already published keep the names.
   `Makefile:package:linux-tarball-records-builder-owner-names`
+- **A failed upload no longer leaves a truncated or empty object in the
+  bucket.** The audit left two questions open about the pinned
+  `cloud.google.com/go/storage` (v1.62.0); both are now settled from its
+  source (`writer.go`, `http_client.go`) and reproduced against a fake
+  upload endpoint in `internal/backend/gcs/gcs_test.go`:
+  `Writer.Close` closes the upload pipe without an error, so the upload
+  goroutine finalises whatever bytes were written so far; and `Close` on a
+  writer that received no `Write` opens the upload first and commits a
+  zero-length object. `Backend.Write` therefore committed a truncated object
+  while answering 500 whenever `io.Copy` failed part-way (body over
+  `WEBHOOK_RELAY_MAX_REQUEST_BYTES`, read timeout, client gone). It now
+  derives a cancellable context for the writer and cancels it on a copy
+  error, which is the library's documented abort: nothing reaches the
+  bucket. The write log records the bytes actually copied, not the declared
+  `Content-Length`.
+  `internal/backend/gcs/gcs.go:Backend.Write:close-commits-partial-object-on-read-error`
 - **Unparseable or unusable configuration values no longer fall back to
   defaults.** `intEnv` and `floatEnv` dropped the `strconv` error, so a typo
   in `WEBHOOK_RELAY_MAX_REQUEST_BYTES`, `WEBHOOK_RELAY_RATE_LIMIT_RPS` or

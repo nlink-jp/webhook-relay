@@ -239,6 +239,23 @@ All object paths are validated before reaching any backend:
 - Enforced via `http.MaxBytesReader` which returns 413 if exceeded
 - Prevents memory exhaustion and storage abuse
 
+### Partial Uploads Are Not Committed
+
+The GCS write streams the request body into a `storage.Writer`. If the
+read fails part-way (body over the limit, read timeout, client gone), the
+writer's context is cancelled, which aborts the upload. The object is
+committed only when the whole body was read.
+
+This matters because of two facts about the pinned storage library
+(v1.62.0), verified from its source and reproduced in
+`internal/backend/gcs/gcs_test.go` against a fake upload endpoint:
+`Writer.Close` after a partial write finalises the bytes written so far as
+a truncated object, and `Close` on a writer that never received a byte
+creates an empty object. The earlier code called `Close` on the error
+path, so an oversized or interrupted upload left a truncated object next
+to the 500 the sender received. A retry would then have produced a
+complete object beside the truncated one.
+
 ### HTTP Method Enforcement
 
 - Only `POST` is accepted on `/ingest/` routes

@@ -34,21 +34,35 @@ func New(ctx context.Context, project, bucket string) (*Backend, error) {
 // Content-Type is forced to application/octet-stream to prevent GCS from
 // inferring a type (e.g. text/html) that could be dangerous if the bucket
 // is ever accidentally made public.
+//
+// The object is committed only when every byte of data was read. If the
+// read fails part-way (body over the size limit, read timeout, client
+// gone), the upload is aborted by cancelling the writer's context, which
+// is the library's documented abort. storage.Writer.Close would instead
+// finalise whatever had been written so far as a truncated object, and
+// Close on a writer that never received a byte creates an empty object.
 func (b *Backend) Write(ctx context.Context, path string, data io.Reader, contentLength int64) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	obj := b.client.Bucket(b.bucket).Object(path)
 	w := obj.NewWriter(ctx)
 	w.ContentType = "application/octet-stream"
 
-	if _, err := io.Copy(w, data); err != nil {
-		w.Close()
-		return fmt.Errorf("gcs: failed to write %s: %w", path, err)
+	n, err := io.Copy(w, data)
+	if err != nil {
+		cancel()
+		// Close now only waits for the aborted upload goroutine to exit;
+		// it returns the cancellation, which is not the error to report.
+		_ = w.Close()
+		return fmt.Errorf("gcs: failed to write %s after %d bytes: %w", path, n, err)
 	}
 
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("gcs: failed to finalize %s: %w", path, err)
 	}
 
-	log.Printf("gcs: wrote gs://%s/%s (%d bytes)", b.bucket, path, contentLength)
+	log.Printf("gcs: wrote gs://%s/%s (%d bytes)", b.bucket, path, n)
 	return nil
 }
 
