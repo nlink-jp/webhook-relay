@@ -261,14 +261,28 @@ Per-IP token bucket rate limiter using `golang.org/x/time/rate`:
 
 ### IP Extraction
 
-1. `X-Forwarded-For` header (set by Cloud Run, trusted)
-2. Leftmost IP taken (original client)
-3. Falls back to `RemoteAddr` if header absent
+Cloud Run appends the client IP it observed to the **right** end of
+`X-Forwarded-For` and passes through whatever the client already sent, so
+every entry but the rightmost is attacker-controlled.
 
-### Stale Entry Cleanup
+1. The rightmost `X-Forwarded-For` entry is taken, and only if it parses as
+   an IP address.
+2. Otherwise the key falls back to `RemoteAddr`.
+3. IPv6 clients are keyed by their /64 prefix, since one customer usually
+   holds at least that much address space.
 
-Visitor entries are evicted after 3 minutes of inactivity to prevent
-memory growth from scanning traffic.
+A client that rotates the leftmost entry on every request therefore still
+shares one bucket. Nothing a client sends can create a key of its choosing.
+
+### Bounded State
+
+- Visitor entries are evicted after 3 minutes of inactivity.
+- The visitor map holds at most 10,000 keys. When it is full, the least
+  recently seen entry makes room for the new one; the evicted client simply
+  starts a fresh bucket on its next request. Memory stays within a few
+  megabytes however many distinct clients appear.
+- `http.Server.MaxHeaderBytes` is 64 KiB (Go's default is 1 MiB), bounding
+  per-request header memory on every route.
 
 ---
 

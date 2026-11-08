@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+Findings from the organisation's code-audit run against this repository
+(quick profile). Each entry names the finding's fingerprint.
+
+- **The per-IP rate limiter keyed on the client-supplied leftmost
+  `X-Forwarded-For` entry.** Cloud Run appends the observed client IP on the
+  right and passes the rest through, so an anonymous caller who rotated the
+  header got a fresh token bucket on every request, and each value became a
+  map entry that nothing capped. The key is now the rightmost entry, used
+  only when it parses as an IP, with `RemoteAddr` as the fallback; IPv6
+  clients are keyed by /64. The visitor map holds at most 10,000 entries
+  (least recently seen is evicted), and `http.Server` sets
+  `MaxHeaderBytes` to 64 KiB. The test that pinned the leftmost choice now
+  asserts the opposite.
+  `internal/middleware/ratelimit.go:extractIP:client-controlled-leftmost-xff-rate-limit-key`
+
 ### Fixed
 
 - **`make verify-release` now fails closed.** Its last block chained unzip, the

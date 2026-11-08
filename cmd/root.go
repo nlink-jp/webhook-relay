@@ -54,6 +54,9 @@ func Run(version string) error {
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		// Bound per-request header memory. Go's default is 1 MiB; the
+		// service reads one short API key header and a few hop headers.
+		MaxHeaderBytes: 64 << 10,
 	}
 
 	// Graceful shutdown
