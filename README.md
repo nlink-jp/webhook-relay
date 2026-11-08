@@ -89,6 +89,30 @@ openssl rand -hex 32 | \
     --data-file=- --project=PROJECT_ID
 ```
 
+The service account gets `roles/storage.objectCreator` on the ingest bucket
+only and `roles/secretmanager.secretAccessor` on the API-key secret only;
+`roles/logging.logWriter` is the one project-wide role.
+
+### Upgrading an existing deployment
+
+Earlier versions of `deploy.sh` bound `objectCreator` and `secretAccessor` on
+the whole project. Re-running the script adds the resource-level bindings but
+does not remove the project-level ones, so remove them once by hand (replace
+`PROJECT_ID` with your value from `deploy.env`; the service account is the one
+`deploy.sh` prints as `SA:` in its summary):
+
+```bash
+SA="serviceAccount:$(gcloud iam service-accounts list --project=PROJECT_ID --filter='displayName:webhook-relay service account' --format='value(email)')"
+gcloud projects remove-iam-policy-binding PROJECT_ID --member="$SA" --role=roles/storage.objectCreator --condition=None
+gcloud projects remove-iam-policy-binding PROJECT_ID --member="$SA" --role=roles/secretmanager.secretAccessor --condition=None
+```
+
+Then confirm that only `roles/logging.logWriter` remains at project scope:
+
+```bash
+gcloud projects get-iam-policy PROJECT_ID --flatten=bindings --filter="bindings.members:$SA" --format="value(bindings.role)"
+```
+
 ## Building
 
 ```bash

@@ -117,19 +117,18 @@ else
   log "Service account already exists: $SA_EMAIL"
 fi
 
-ROLES=(
-  "roles/storage.objectCreator"
-  "roles/secretmanager.secretAccessor"
-  "roles/logging.logWriter"
-)
-for role in "${ROLES[@]}"; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="$role" \
-    --condition=None \
-    --quiet &>/dev/null
-done
-log "IAM roles assigned (objectCreator — write only, no read/delete)"
+# Only logging.logWriter is bound at project scope: there is no narrower
+# resource to bind it to. storage.objectCreator is bound on the one bucket
+# and secretmanager.secretAccessor on the one secret, below, once each
+# exists. Re-running this script does not remove project-level bindings
+# that an earlier version granted; see README.md "Upgrading an existing
+# deployment" for the removal commands.
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/logging.logWriter" \
+  --condition=None \
+  --quiet &>/dev/null
+log "IAM: logging.logWriter on project"
 
 # ── GCS Bucket ───────────────────────────────────────────────────────
 step "Setting up GCS bucket"
@@ -142,6 +141,13 @@ if ! gcloud storage buckets describe "gs://${GCS_BUCKET}" --project="$PROJECT_ID
 else
   log "Bucket already exists: gs://${GCS_BUCKET}"
 fi
+
+# Write-only, and only to this bucket. objectCreator lacks get/list/delete.
+gcloud storage buckets add-iam-policy-binding "gs://${GCS_BUCKET}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/storage.objectCreator" \
+  --quiet >/dev/null
+log "IAM: storage.objectCreator on gs://${GCS_BUCKET} (write only, no read/delete)"
 
 # ── Artifact Registry ───────────────────────────────────────────────
 step "Setting up Artifact Registry"
@@ -174,6 +180,14 @@ if ! gcloud secrets describe "$SECRET_NAME" --project="$PROJECT_ID" &>/dev/null;
 else
   log "Secret already exists: $SECRET_NAME"
 fi
+
+# Read this one secret, not every secret in the project.
+gcloud secrets add-iam-policy-binding "$SECRET_NAME" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --quiet >/dev/null
+log "IAM: secretmanager.secretAccessor on $SECRET_NAME"
 
 # ── Cloud Run Service ───────────────────────────────────────────────
 step "Deploying Cloud Run Service"

@@ -24,6 +24,17 @@ Findings from the organisation's code-audit run against this repository
   asserts the opposite.
   `internal/middleware/ratelimit.go:extractIP:client-controlled-leftmost-xff-rate-limit-key`
 
+- **Service-account roles are bound on the resources, not the project.**
+  `deploy.sh` granted `roles/storage.objectCreator` and
+  `roles/secretmanager.secretAccessor` project-wide, so the internet-facing
+  service identity could write to every bucket and read every secret in the
+  project, against what docs/en/security.md claimed. The bucket role is now
+  bound on `gs://${GCS_BUCKET}` and the secret role on
+  `webhook-relay-api-key`, each once the resource exists; only
+  `roles/logging.logWriter` stays at project scope. Re-running the script
+  does not remove the older project-level bindings: README.md "Upgrading an
+  existing deployment" gives the two `remove-iam-policy-binding` commands.
+  `deploy/deploy.sh:ROLES:project-scoped-sa-bindings`
 - **Unparseable or unusable configuration values no longer fall back to
   defaults.** `intEnv` and `floatEnv` dropped the `strconv` error, so a typo
   in `WEBHOOK_RELAY_MAX_REQUEST_BYTES`, `WEBHOOK_RELAY_RATE_LIMIT_RPS` or

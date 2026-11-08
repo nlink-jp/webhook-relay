@@ -343,13 +343,20 @@ created, stored, or deployed.
 
 ## IAM Principle of Least Privilege
 
-The service account has the minimum permissions required:
+The service account has the minimum permissions required, bound at the
+narrowest scope that exists for each:
 
-| Role | Justification |
-|------|---------------|
-| `roles/storage.objectCreator` | Write objects to GCS. **Not** `objectAdmin` — cannot read, list, or delete existing objects. |
-| `roles/secretmanager.secretAccessor` | Read API key from Secret Manager |
-| `roles/logging.logWriter` | Write structured logs to Cloud Logging |
+| Role | Scope | Justification |
+|------|-------|---------------|
+| `roles/storage.objectCreator` | The ingest bucket (`gs://${GCS_BUCKET}`) only | Write objects to GCS. **Not** `objectAdmin` — cannot read, list, or delete existing objects. Cannot write to any other bucket in the project. |
+| `roles/secretmanager.secretAccessor` | The `webhook-relay-api-key` secret only | Read the API key. Cannot read any other secret in the project. |
+| `roles/logging.logWriter` | Project | Write structured logs to Cloud Logging. Logging has no narrower resource to bind to. |
+
+A compromised service identity is therefore confined to appending objects to
+one bucket and reading one secret, whatever else lives in the project.
+Deployments made by an earlier `deploy.sh`, which bound the first two roles
+project-wide, keep those bindings until they are removed by hand; README.md
+"Upgrading an existing deployment" gives the commands.
 
 **Notable exclusions:**
 - No `storage.objectViewer` — the service cannot read existing objects

@@ -67,3 +67,4 @@ webhook-relay/
 - API key comparison is constant-time (crypto/subtle) — do not change to ==
 - VPC egress goes through Private Google Access only — no internet egress
 - Service account is write-only (objectCreator) — cannot read or delete GCS objects
+- IAM is resource-level: objectCreator on the one bucket, secretAccessor on the one secret; only logging.logWriter is project-wide. Re-running deploy.sh does not remove older project-wide bindings (README "Upgrading an existing deployment")

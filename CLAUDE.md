@@ -30,5 +30,5 @@ internal/
 - Security-first: all input validated, all requests logged
 - API key via X-API-Key header, stored in Secret Manager
 - VPC isolation: egress only to Google APIs
-- Service account has write-only GCS access (no read/delete)
+- Service account has write-only GCS access (no read/delete), bound on the one bucket; secretAccessor bound on the one secret
 - Non-root container

@@ -336,13 +336,18 @@ Cloud Run は観測したクライアント IP を `X-Forwarded-For` の**右端
 
 ## IAM の最小権限の原則
 
-サービスアカウントは必要最小限の権限しか持たない:
+サービスアカウントは必要最小限の権限しか持たず、それぞれ存在する最も狭いスコープに束縛する:
 
-| Role | Justification |
-|------|---------------|
-| `roles/storage.objectCreator` | GCS へオブジェクトを書き込む。`objectAdmin` では**ない** — 既存のオブジェクトを読むこと・一覧すること・削除することはできない。 |
-| `roles/secretmanager.secretAccessor` | Secret Manager から API キーを読む |
-| `roles/logging.logWriter` | Cloud Logging へ構造化ログを書き込む |
+| Role | Scope | Justification |
+|------|-------|---------------|
+| `roles/storage.objectCreator` | 受信バケット（`gs://${GCS_BUCKET}`）のみ | GCS へオブジェクトを書き込む。`objectAdmin` では**ない** — 既存のオブジェクトを読むこと・一覧すること・削除することはできない。プロジェクト内の他のバケットには書けない。 |
+| `roles/secretmanager.secretAccessor` | シークレット `webhook-relay-api-key` のみ | API キーを読む。プロジェクト内の他のシークレットは読めない。 |
+| `roles/logging.logWriter` | プロジェクト | Cloud Logging へ構造化ログを書き込む。ログにはこれより狭い束縛先が無い。 |
+
+したがってサービスの識別情報が侵害されても、できることは 1 つのバケットへの追記と 1 つの
+シークレットの読み取りに限られ、プロジェクトに他に何があっても変わらない。以前の `deploy.sh`
+は前 2 つのロールをプロジェクト全体に束縛しており、その配備では手で外すまで束縛が残る。
+コマンドは README.ja.md「既存デプロイの更新」にある。
 
 **とくに除外しているもの:**
 - `storage.objectViewer` は無い — サービスは既存のオブジェクトを読めない

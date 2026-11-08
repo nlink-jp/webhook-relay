@@ -87,6 +87,29 @@ openssl rand -hex 32 | \
     --data-file=- --project=PROJECT_ID
 ```
 
+サービスアカウントには、`roles/storage.objectCreator` を受信バケットだけに、
+`roles/secretmanager.secretAccessor` を API キーのシークレットだけに付与する。
+プロジェクト全体に付くのは `roles/logging.logWriter` のみ。
+
+### 既存デプロイの更新
+
+以前の `deploy.sh` は `objectCreator` と `secretAccessor` をプロジェクト全体に束縛していた。
+スクリプトを再実行すると resource-level の束縛は足されるが、プロジェクトレベルの束縛は
+外れないので、一度だけ手で外す（`PROJECT_ID` は `deploy.env` の値に置き換える。サービスアカウントは
+`deploy.sh` が概要に `SA:` として印字するもの）:
+
+```bash
+SA="serviceAccount:$(gcloud iam service-accounts list --project=PROJECT_ID --filter='displayName:webhook-relay service account' --format='value(email)')"
+gcloud projects remove-iam-policy-binding PROJECT_ID --member="$SA" --role=roles/storage.objectCreator --condition=None
+gcloud projects remove-iam-policy-binding PROJECT_ID --member="$SA" --role=roles/secretmanager.secretAccessor --condition=None
+```
+
+そのうえで、プロジェクトスコープに残るのが `roles/logging.logWriter` だけであることを確かめる:
+
+```bash
+gcloud projects get-iam-policy PROJECT_ID --flatten=bindings --filter="bindings.members:$SA" --format="value(bindings.role)"
+```
+
 ## ビルド
 
 ```bash
