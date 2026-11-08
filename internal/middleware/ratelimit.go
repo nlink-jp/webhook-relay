@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"container/list"
 	"net"
 	"net/http"
 	"strings"
@@ -17,17 +18,23 @@ import (
 // evicted client simply starts a fresh bucket on its next request.
 const maxVisitors = 10000
 
-// visitor tracks a rate limiter per client IP.
+// visitor tracks a rate limiter per client key.
 type visitor struct {
+	key      string
 	limiter  *rate.Limiter
 	lastSeen time.Time
 }
 
 // RateLimiter provides per-IP rate limiting to prevent abuse.
 // Each unique client IP gets its own token bucket.
+//
+// Entries live in a map for lookup and in a list ordered by last use, so
+// that eviction of the least recently seen entry is O(1) and never walks
+// the whole map while holding the lock.
 type RateLimiter struct {
 	mu          sync.Mutex
-	visitors    map[string]*visitor
+	visitors    map[string]*list.Element // value: *visitor
+	order       *list.List               // front = most recently seen
 	rps         rate.Limit
 	burst       int
 	maxVisitors int
@@ -36,63 +43,66 @@ type RateLimiter struct {
 // NewRateLimiter creates a rate limiter with the given rate and burst.
 // It starts a background goroutine to clean up stale entries.
 func NewRateLimiter(rps float64, burst int) *RateLimiter {
-	rl := &RateLimiter{
-		visitors:    make(map[string]*visitor),
-		rps:         rate.Limit(rps),
-		burst:       burst,
-		maxVisitors: maxVisitors,
-	}
+	rl := newRateLimiter(rps, burst, maxVisitors)
 	go rl.cleanup()
 	return rl
 }
 
-func (rl *RateLimiter) getVisitor(ip string) *rate.Limiter {
+func newRateLimiter(rps float64, burst, cap int) *RateLimiter {
+	return &RateLimiter{
+		visitors:    make(map[string]*list.Element),
+		order:       list.New(),
+		rps:         rate.Limit(rps),
+		burst:       burst,
+		maxVisitors: cap,
+	}
+}
+
+func (rl *RateLimiter) getVisitor(key string) *rate.Limiter {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	v, exists := rl.visitors[ip]
-	if !exists {
-		if len(rl.visitors) >= rl.maxVisitors {
-			rl.evictOldestLocked()
-		}
-		limiter := rate.NewLimiter(rl.rps, rl.burst)
-		rl.visitors[ip] = &visitor{limiter: limiter, lastSeen: time.Now()}
-		return limiter
+	if e, ok := rl.visitors[key]; ok {
+		v := e.Value.(*visitor)
+		v.lastSeen = time.Now()
+		rl.order.MoveToFront(e)
+		return v.limiter
 	}
 
-	v.lastSeen = time.Now()
+	if len(rl.visitors) >= rl.maxVisitors {
+		rl.evictLocked(rl.order.Back())
+	}
+	v := &visitor{key: key, limiter: rate.NewLimiter(rl.rps, rl.burst), lastSeen: time.Now()}
+	rl.visitors[key] = rl.order.PushFront(v)
 	return v.limiter
 }
 
-// evictOldestLocked removes the least recently seen visitor. The caller
-// holds rl.mu. The scan is linear, but the map never exceeds maxVisitors.
-func (rl *RateLimiter) evictOldestLocked() {
-	var (
-		oldestKey string
-		oldest    time.Time
-		found     bool
-	)
-	for ip, v := range rl.visitors {
-		if !found || v.lastSeen.Before(oldest) {
-			oldestKey, oldest, found = ip, v.lastSeen, true
-		}
+// evictLocked removes one entry. The caller holds rl.mu.
+func (rl *RateLimiter) evictLocked(e *list.Element) {
+	if e == nil {
+		return
 	}
-	if found {
-		delete(rl.visitors, oldestKey)
-	}
+	delete(rl.visitors, e.Value.(*visitor).key)
+	rl.order.Remove(e)
 }
 
-// cleanup removes visitors that haven't been seen in 3 minutes.
+// cleanup removes visitors that haven't been seen in 3 minutes. The list is
+// ordered by last use, so the walk stops at the first fresh entry.
 func (rl *RateLimiter) cleanup() {
 	for {
 		time.Sleep(time.Minute)
-		rl.mu.Lock()
-		for ip, v := range rl.visitors {
-			if time.Since(v.lastSeen) > 3*time.Minute {
-				delete(rl.visitors, ip)
-			}
+		rl.evictStale(3 * time.Minute)
+	}
+}
+
+func (rl *RateLimiter) evictStale(idle time.Duration) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	for e := rl.order.Back(); e != nil; e = rl.order.Back() {
+		if time.Since(e.Value.(*visitor).lastSeen) <= idle {
+			return
 		}
-		rl.mu.Unlock()
+		rl.evictLocked(e)
 	}
 }
 

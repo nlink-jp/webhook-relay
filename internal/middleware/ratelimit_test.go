@@ -107,31 +107,57 @@ func TestExtractIP(t *testing.T) {
 }
 
 func TestRateLimiterVisitorCap(t *testing.T) {
-	rl := &RateLimiter{visitors: make(map[string]*visitor), rps: 1, burst: 1, maxVisitors: 3}
+	rl := newRateLimiter(1, 1, 3)
 
 	for i := 0; i < 3; i++ {
 		rl.getVisitor(fmt.Sprintf("192.0.2.%d", i))
-		time.Sleep(time.Millisecond) // distinct lastSeen
 	}
 	if got := len(rl.visitors); got != 3 {
 		t.Fatalf("visitors = %d, want 3", got)
 	}
 
-	// The fourth key evicts the least recently seen one (192.0.2.0).
+	// Touch the oldest so that it is no longer the eviction candidate.
+	rl.getVisitor("192.0.2.0")
+
+	// The fourth key evicts the least recently seen one, now 192.0.2.1.
 	rl.getVisitor("192.0.2.3")
 	if got := len(rl.visitors); got != 3 {
 		t.Errorf("visitors = %d after overflow, want 3 (cap)", got)
 	}
-	if _, ok := rl.visitors["192.0.2.0"]; ok {
-		t.Error("oldest visitor 192.0.2.0 should have been evicted")
+	if _, ok := rl.visitors["192.0.2.1"]; ok {
+		t.Error("least recently seen visitor 192.0.2.1 should have been evicted")
 	}
-	if _, ok := rl.visitors["192.0.2.3"]; !ok {
-		t.Error("new visitor 192.0.2.3 should have been inserted")
+	for _, key := range []string{"192.0.2.0", "192.0.2.2", "192.0.2.3"} {
+		if _, ok := rl.visitors[key]; !ok {
+			t.Errorf("visitor %s should still be tracked", key)
+		}
+	}
+	if rl.order.Len() != len(rl.visitors) {
+		t.Errorf("list has %d entries, map has %d", rl.order.Len(), len(rl.visitors))
 	}
 
 	// A fresh bucket for the evicted client is not a bypass: it is the same
 	// allowance a first-time client gets.
-	if !rl.getVisitor("192.0.2.0").Allow() {
+	if !rl.getVisitor("192.0.2.1").Allow() {
 		t.Error("re-inserted visitor should get a fresh bucket")
+	}
+}
+
+func TestRateLimiterEvictStale(t *testing.T) {
+	rl := newRateLimiter(1, 1, 10)
+	rl.getVisitor("192.0.2.1")
+	rl.getVisitor("192.0.2.2")
+	rl.visitors["192.0.2.1"].Value.(*visitor).lastSeen = time.Now().Add(-5 * time.Minute)
+
+	rl.evictStale(3 * time.Minute)
+
+	if _, ok := rl.visitors["192.0.2.1"]; ok {
+		t.Error("stale visitor should have been evicted")
+	}
+	if _, ok := rl.visitors["192.0.2.2"]; !ok {
+		t.Error("fresh visitor should remain")
+	}
+	if rl.order.Len() != 1 {
+		t.Errorf("list has %d entries, want 1", rl.order.Len())
 	}
 }
