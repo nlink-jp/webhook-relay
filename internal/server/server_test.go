@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,6 +64,56 @@ func TestHealthz(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "ok") {
 		t.Errorf("healthz: body %q missing 'ok'", w.Body.String())
+	}
+}
+
+// captureLog routes the standard logger into a buffer for one test.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev, flags := log.Writer(), log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0) // as main.go does: Cloud Run adds the timestamp
+	t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
+	return &buf
+}
+
+// Every route is audit logged and carries the security headers, not only
+// /ingest/: a probe of an unknown path must leave a structured record.
+func TestEveryRouteIsAuditedAndHardened(t *testing.T) {
+	srv, _ := newTestServer("test-key")
+	for _, tt := range []struct {
+		method, path string
+		wantStatus   int
+	}{
+		{http.MethodGet, "/healthz", http.StatusOK},
+		{http.MethodGet, "/.env", http.StatusNotFound},
+		{http.MethodPost, "/ingest/mock/inbox/test.eml", http.StatusUnauthorized},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			buf := captureLog(t)
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+			if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+				t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+			}
+			lines := strings.Count(strings.TrimSpace(buf.String()), "\n") + 1
+			if strings.TrimSpace(buf.String()) == "" || lines != 1 {
+				t.Fatalf("want exactly one audit line, got %d:\n%s", lines, buf.String())
+			}
+			var entry map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(buf.String())), &entry); err != nil {
+				t.Fatalf("audit line is not JSON: %v\n%s", err, buf.String())
+			}
+			if entry["path"] != tt.path || int(entry["status"].(float64)) != tt.wantStatus {
+				t.Errorf("audit entry = %v, want path %s status %d", entry, tt.path, tt.wantStatus)
+			}
+		})
 	}
 }
 

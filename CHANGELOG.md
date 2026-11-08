@@ -82,6 +82,14 @@ Findings from the organisation's code-audit run against this repository
   touched, and a chunked body that outgrows the limit while streaming is
   also answered 413 (the `http.MaxBytesError` was mapped to 500 before).
   `internal/server/server.go:handleIngest:empty-chunked-body-bypasses-contentlength-check`
+- **Every route is audit logged and carries the security headers.**
+  `Handler()` returned the bare mux, so only `/ingest/` had `AuditLog` and
+  `SecurityHeaders`; `/healthz`, unknown paths (the mux's 404) and its
+  redirects left no structured record, against the "every request is
+  logged" statement in docs/en/security.md. Both middlewares now wrap the
+  whole mux in `Handler()` and are no longer repeated per route, so a probe
+  of `/.env` shows up in the audit trail with its 404.
+  `internal/server/server.go:New:audit-log-wraps-only-ingest-route`
 - **Unparseable or unusable configuration values no longer fall back to
   defaults.** `intEnv` and `floatEnv` dropped the `strconv` error, so a typo
   in `WEBHOOK_RELAY_MAX_REQUEST_BYTES`, `WEBHOOK_RELAY_RATE_LIMIT_RPS` or

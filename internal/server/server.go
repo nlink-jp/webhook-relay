@@ -44,33 +44,31 @@ func New(cfg *config.Config, backends map[string]backend.Backend) *Server {
 	// Rate limiter
 	rl := middleware.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
 
-	// Build middleware chain (order matters — outermost first):
-	// AuditLog → SecurityHeaders → MaxBodySize → RateLimit → APIKeyAuth → handler
+	// Build the ingest chain (order matters — outermost first):
+	// MaxBodySize → RateLimit → APIKeyAuth → MethodOnly → handler.
+	// AuditLog and SecurityHeaders wrap the whole mux in Handler, so they
+	// are not repeated here.
 	ingest := chain(
 		http.HandlerFunc(s.handleIngest),
-		middleware.AuditLog,
-		middleware.SecurityHeaders,
 		middleware.MaxBodySize(cfg.MaxRequestBytes),
 		rl.Middleware,
 		auth.APIKeyAuth(cfg.APIKey),
 		middleware.MethodOnly(http.MethodPost),
 	)
 
-	// Health check — no auth, no rate limit, minimal info
-	health := chain(
-		http.HandlerFunc(s.handleHealth),
-		middleware.SecurityHeaders,
-	)
-
 	s.mux.Handle("/ingest/", ingest)
-	s.mux.Handle("/healthz", health)
+	// Health check — no auth, no rate limit, minimal info
+	s.mux.HandleFunc("/healthz", s.handleHealth)
 
 	return s
 }
 
-// Handler returns the http.Handler for the server.
+// Handler returns the http.Handler for the server. Every request is audit
+// logged and gets the security headers, including /healthz, unknown paths
+// (the mux's 404) and the mux's redirects, so path probing shows up in the
+// structured trail and not only in the platform's request log.
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return chain(s.mux, middleware.AuditLog, middleware.SecurityHeaders)
 }
 
 // handleHealth returns a minimal health check response.

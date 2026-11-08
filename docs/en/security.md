@@ -45,8 +45,8 @@ External Source (Power Automate)
 │ Internet ingress (HTTPS/TLS)   │
 │     ↓                          │
 │ Middleware chain:              │
-│   1. Audit log                 │
-│   2. Security headers          │
+│   1. Audit log      (all paths)│
+│   2. Security headers (all)    │
 │   3. Request size limit        │
 │   4. Per-IP rate limit         │
 │   5. API key authentication    │
@@ -311,7 +311,9 @@ shares one bucket. Nothing a client sends can create a key of its choosing.
 ## Audit Logging
 
 Every request is logged as structured JSON to stdout, which Cloud Run
-forwards to Cloud Logging:
+forwards to Cloud Logging. The audit middleware wraps the whole router, so
+`/healthz`, unknown paths (404) and redirects are recorded too, not only
+`/ingest/`; path-probing reconnaissance therefore appears in this trail:
 
 ```json
 {
