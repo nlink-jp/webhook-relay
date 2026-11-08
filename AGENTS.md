@@ -13,7 +13,7 @@ make build       # Build → dist/webhook-relay
 make build-all   # Cross-compile all platforms
 make test        # Run tests
 make clean       # Remove dist/
-make verify-release  # gate: notarized, fresh, runs at this version, clean linux archives (run before upload)
+make verify-release  # gate: notarized, fresh, runs at this version, clean linux archives, no builder paths in any binary (run before upload)
 ```
 
 ## Key directory structure
@@ -64,6 +64,7 @@ webhook-relay/
 ## Gotchas
 
 - Internet-facing service — all changes must consider security impact
+- Build only through `make` (`GOBUILD` passes `-trimpath`); a hand-run `go build` embeds `/Users/<login>/...` and `make verify-release` rejects the archive
 - API key comparison is constant-time (crypto/subtle) — do not change to ==
 - VPC egress goes through Private Google Access only — no internet egress
 - Service account is write-only (objectCreator) — cannot read or delete GCS objects

@@ -35,6 +35,17 @@ Findings from the organisation's code-audit run against this repository
   does not remove the older project-level bindings: README.md "Upgrading an
   existing deployment" gives the two `remove-iam-policy-binding` commands.
   `deploy/deploy.sh:ROLES:project-scoped-sa-bindings`
+- **Release binaries no longer embed the builder's home-directory paths.**
+  `make build` and `make build-all` ran `go build` without `-trimpath`, so
+  every published binary (GitHub release assets, the Homebrew install)
+  recorded the release machine's absolute source and module-cache paths
+  (`/Users/<login>/...`), readable with `strings` or `go version -m` and
+  printed in panic traces. Both targets, and the container build in
+  `deploy/Dockerfile`, now pass `-trimpath`. `make verify-release` extracts
+  the binary from every archive and fails if it contains `/Users/` or
+  `/home/`, so a `GOFLAGS` override or a hand-run build cannot bring the
+  paths back. Assets already published keep them.
+  `Makefile:build-all:release-binaries-built-without-trimpath`
 - **Unparseable or unusable configuration values no longer fall back to
   defaults.** `intEnv` and `floatEnv` dropped the `strconv` error, so a typo
   in `WEBHOOK_RELAY_MAX_REQUEST_BYTES`, `WEBHOOK_RELAY_RATE_LIMIT_RPS` or

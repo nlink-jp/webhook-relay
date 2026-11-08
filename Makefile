@@ -1,6 +1,10 @@
 BINARY  := webhook-relay
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
+# -trimpath records module-relative file names instead of the builder's
+# absolute paths (/Users/<login>/...) in the binary's build info and
+# pclntab; verify-release refuses an archive that carries them.
+GOBUILD := go build -trimpath $(LDFLAGS)
 DIST_DIR := dist
 
 # macOS Developer ID signing / notarization (see nlink-jp/.github
@@ -21,14 +25,14 @@ PLATFORMS := darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
 build:
 	@mkdir -p $(DIST_DIR)
-	go build $(LDFLAGS) -o $(DIST_DIR)/$(BINARY) .
+	$(GOBUILD) -o $(DIST_DIR)/$(BINARY) .
 	@scripts/codesign-darwin.sh $(DIST_DIR)/$(BINARY) "$(CODESIGN_IDENTITY)"
 
 build-all:
 	@mkdir -p $(DIST_DIR)
 	@for p in $(PLATFORMS); do os=$${p%/*}; arch=$${p#*/}; \
 		ext=""; [ "$$os" = windows ] && ext=".exe"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(LDFLAGS) -o $(DIST_DIR)/$(BINARY)-$$os-$$arch$$ext . ; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GOBUILD) -o $(DIST_DIR)/$(BINARY)-$$os-$$arch$$ext . ; \
 	done
 	@scripts/codesign-darwin.sh $(DIST_DIR)/$(BINARY)-darwin-arm64 "$(CODESIGN_IDENTITY)" "$(BINARY)"
 
@@ -51,8 +55,9 @@ package: build-all
 	@scripts/notarize-darwin.sh $(DIST_DIR)/$(BINARY)-$(VERSION)-darwin-arm64.zip "$(NOTARY_PROFILE)"
 
 ## verify-release: refuse to release a zip that is un-notarized, stale, does
-## not unpack, does not run, or holds a build from another tag, and a linux
-## archive that carries macOS metadata or anything but its canonical files.
+## not unpack, does not run, or holds a build from another tag, a linux
+## archive that carries macOS metadata or anything but its canonical files,
+## and any archive whose binary embeds the builder's home-directory paths.
 ## Every step fails closed; only the spctl line is informational.
 verify-release:
 	@test -f "$(DIST_DIR)/$(BINARY)-$(VERSION)-darwin-arm64.zip.notarized" || { \
@@ -96,7 +101,19 @@ verify-release:
 		if [ "$$got" != "$$want" ]; then \
 			echo "verify-release: FAIL — $$f holds $$got; expected $$want"; exit 1; fi; \
 	done
-	@echo "verify-release: OK ($(VERSION), notarized, unpacks, runs, reports its version, clean linux archives)"
+	@tmp=$$(mktemp -d); rc=0; \
+	for p in $(PLATFORMS); do os=$${p%/*}; arch=$${p#*/}; \
+		ext=""; [ "$$os" = windows ] && ext=".exe"; \
+		base="$(DIST_DIR)/$(BINARY)-$(VERSION)-$$os-$$arch"; \
+		if [ "$$os" = linux ]; then tar -xzOf "$$base.tar.gz" "$(BINARY)" > "$$tmp/bin" 2>/dev/null; \
+		else unzip -p "$$base.zip" "$(BINARY)$$ext" > "$$tmp/bin" 2>/dev/null; fi; \
+		if [ ! -s "$$tmp/bin" ]; then \
+			echo "verify-release: FAIL — cannot extract $(BINARY)$$ext from the $$os-$$arch archive."; rc=1; continue; fi; \
+		if LC_ALL=C grep -a -q -E '/Users/|/home/' "$$tmp/bin"; then \
+			echo "verify-release: FAIL — the $$os-$$arch binary embeds the builder's home-directory paths."; \
+			echo "  make build-all passes -trimpath; a GOFLAGS override or a hand-run go build removed it."; rc=1; fi; \
+	done; rm -rf "$$tmp"; exit $$rc
+	@echo "verify-release: OK ($(VERSION), notarized, unpacks, runs, reports its version, clean linux archives, no builder paths)"
 
 test:
 	go test ./...
