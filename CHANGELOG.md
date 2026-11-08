@@ -23,7 +23,6 @@ Findings from the organisation's code-audit run against this repository
   `MaxHeaderBytes` to 64 KiB. The test that pinned the leftmost choice now
   asserts the opposite.
   `internal/middleware/ratelimit.go:extractIP:client-controlled-leftmost-xff-rate-limit-key`
-
 - **Service-account roles are bound on the resources, not the project.**
   `deploy.sh` granted `roles/storage.objectCreator` and
   `roles/secretmanager.secretAccessor` project-wide, so the internet-facing

@@ -27,7 +27,7 @@ webhook-relay/
 │   ├── auth/apikey.go         # API Key auth (constant-time)
 │   ├── backend/
 │   │   ├── backend.go         # Backend interface
-│   │   └── gcs/gcs.go         # GCS backend
+│   │   └── gcs/gcs.go         # GCS backend (gcs_test.go: fake upload endpoint via STORAGE_EMULATOR_HOST)
 │   ├── config/config.go       # Env var configuration
 │   ├── middleware/
 │   │   ├── security.go        # Headers, body limit, path validation
@@ -66,6 +66,10 @@ webhook-relay/
 - Internet-facing service — all changes must consider security impact
 - Build only through `make` (`GOBUILD` passes `-trimpath`); a hand-run `go build` embeds `/Users/<login>/...` and `make verify-release` rejects the archive
 - API key comparison is constant-time (crypto/subtle) — do not change to ==
+- `Handler()` wraps the whole mux in AuditLog and SecurityHeaders; do not add them per route (they would log twice)
+- `gcs.Backend.Write` aborts a failed copy by cancelling the writer's context. Never "clean up" with `w.Close()` on the error path: `storage.Writer.Close` commits the bytes written so far (and an empty object when none were)
+- Rate-limit key is the rightmost X-Forwarded-For entry (the hop Cloud Run appends); the leftmost is client-chosen. Tests pin this
+- `config.Load` fails closed: a present but unusable value is an error, never a silent default
 - VPC egress goes through Private Google Access only — no internet egress
 - Service account is write-only (objectCreator) — cannot read or delete GCS objects
 - IAM is resource-level: objectCreator on the one bucket, secretAccessor on the one secret; only logging.logWriter is project-wide. Re-running deploy.sh does not remove older project-wide bindings (README "Upgrading an existing deployment")
