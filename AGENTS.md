@@ -13,6 +13,7 @@ make build       # Build → dist/webhook-relay
 make build-all   # Cross-compile all platforms
 make test        # Run tests
 make clean       # Remove dist/
+make vuln            # govulncheck over the build; `make package` runs it first and stops on a finding
 make verify-release  # gate: notarized, fresh, runs at this version, clean linux archives, no builder paths in any binary (run before upload)
 ```
 
@@ -35,7 +36,7 @@ webhook-relay/
 │   │   └── logging.go         # Structured audit logging
 │   └── server/server.go       # HTTP server, routing
 ├── deploy/
-│   ├── Dockerfile             # Multi-stage, non-root
+│   ├── Dockerfile             # Multi-stage, non-root; the builder's Go release is pinned (tag + digest) and must not be below go.mod's go line
 │   ├── deploy.sh              # VPC + Cloud Run setup
 │   └── deploy.env.template
 ├── docs/
