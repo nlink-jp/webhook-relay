@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-11-14
+
+### Security
+
+- **`golang.org/x/net` is updated from v0.52.0 to v0.62.0.** The connection
+  to Cloud Storage ran on x/net's own HTTP/2, not the standard library's:
+  the storage client's default transport configures it that way. Measured —
+  a request through `storage.NewClient` against a local server was handled
+  by `golang.org/x/net/http2`. Three advisories apply to an HTTP/2 client
+  there (GO-2026-4918, -6610, -6611); each needs the server end of the
+  connection, which is Google's endpoint under TLS. With v0.62.0 built by
+  Go 1.27 the same request is handled by the standard library, where they
+  are fixed from Go 1.27.2. The listener itself is plain HTTP/1.1 and was
+  never on that code.
+- **Built with Go 1.27.4** (`go.mod` now requires it; it was 1.26.1).
+  GO-2026-6859 — an HTTP/1 server can crash on a race in `MaxBytesReader`,
+  which the body-size limit here uses — is fixed in that release. The
+  binaries of v0.3.0 were built with Go 1.27.3.
+- `go-jose` moves to v4.1.4, OpenTelemetry to v1.45.0, `grpc` to v1.83.2 and
+  `x/text` to v0.43.0 for advisories `govulncheck` traced only through
+  package initialisation or through code this build does not run. One
+  advisory remains, against a package this build does not import
+  (`x/crypto/openpgp`, unmaintained, no fixed release).
+
+### Fixed
+
+- **`deploy/Dockerfile` builds again, with the same Go release as the
+  binaries.** Its builder image was `golang:1.24-alpine`; the official image
+  refuses to fetch a newer toolchain, so the build stopped at
+  `go mod download` once `go.mod` required Go 1.26 (confirmed: "go.mod
+  requires go >= 1.26.1 (running go 1.24.13; GOTOOLCHAIN=local)"). A
+  deployment made with `deploy/deploy.sh` since then cannot have been
+  rebuilt; **check which image a running service uses and redeploy.** The
+  builder is now `golang:1.27.4-alpine`, pinned by the digest of its
+  multi-arch index, and the image built from it was checked: Go 1.27.4,
+  no finding.
+
+### Changed
+
+- **`make package` runs the vulnerability check first** (`make vuln`), so a
+  release cannot be built past a finding.
+
 ## [0.3.0] - 2026-11-09
 
 ### Security
