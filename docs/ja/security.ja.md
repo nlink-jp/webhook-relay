@@ -345,7 +345,7 @@ Cloud Run は観測したクライアント IP を `X-Forwarded-For` の**右端
 
 | Measure | Implementation |
 |---------|----------------|
-| マルチステージビルド | `golang:1.24-alpine` でビルドし、`alpine:3.21` で実行 |
+| マルチステージビルド | `golang:1.27.4-alpine`（digest で固定）でビルドし、`alpine:3.21` で実行 |
 | 非 root ユーザー | `adduser -D -H appuser` + `USER appuser` |
 | 最小のイメージ | Alpine ベース、`ca-certificates` のみを導入 |
 | 静的バイナリ | `CGO_ENABLED=0`、動的リンク無し |

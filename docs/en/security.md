@@ -357,7 +357,7 @@ created, stored, or deployed.
 
 | Measure | Implementation |
 |---------|----------------|
-| Multi-stage build | Build in `golang:1.24-alpine`, run in `alpine:3.21` |
+| Multi-stage build | Build in `golang:1.27.4-alpine` (pinned by digest), run in `alpine:3.21` |
 | Non-root user | `adduser -D -H appuser` + `USER appuser` |
 | Minimal image | Alpine base, only `ca-certificates` installed |
 | Static binary | `CGO_ENABLED=0`, no dynamic linking |
