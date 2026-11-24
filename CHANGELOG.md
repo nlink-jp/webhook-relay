@@ -14,6 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   build alone, so an advisory in a Linux- or Windows-only package could not
   stop a release.
 
+### Security
+
+- **OpenTelemetry is updated from v1.45.0 to v1.47.0** (`go.opentelemetry.io/otel`,
+  `otel/trace`, `otel/metric`, `otel/sdk`, `otel/sdk/metric`; they come in
+  through the Cloud Storage client).
+  `govulncheck` found GO-2026-6974 (CVE-2026-128085, published 2026-11-23:
+  attribute value length limits could be bypassed with U+FFFD runes) on the client's tracing path, which webhook-relay reaches whenever
+  the GCS backend writes a payload. A deployed relay keeps the old build until
+  it is redeployed.
+  The same update fixes GO-2026-6975 (memory allocation amplification in W3C
+  baggage parsing in `go.opentelemetry.io/otel`), whose package webhook-relay imports
+  but whose affected code it does not call.
+  One advisory remains that webhook-relay does not call: GO-2026-5932 against
+  `x/crypto/openpgp` (unmaintained, no fixed release).
+
 ## [0.3.1] - 2026-11-14
 
 ### Security
